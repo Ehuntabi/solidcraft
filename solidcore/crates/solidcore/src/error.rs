@@ -27,6 +27,7 @@
 //! | [`SolidError::Failed`], [`Failure`], [`Reason`] | none: a failure in solidcore's own terms (#2615) |
 //! | [`ErrorKind`], [`SolidError::kind`] | none: solidcore's stable error codes (#2615) |
 //! | [`offset::OffsetFailure`]   | none: the offset subsystem's refusals (#2615)    |
+//! | [`sweep::SweepFailure`]     | none: why a sweep or loft refuses (#3140)         |
 //!
 //! NLib routines (`NL_*.cpp`) report failure by returning an error flag and storing an
 //! error number in the process-wide `NL_ERROR` record; solidcore returns
@@ -73,6 +74,7 @@
 //! difftest and the FFI), since nothing but the comparison needs them.
 
 pub mod offset;
+pub mod sweep;
 
 use crate::topology::{
     BrepId, EdgeId, EdgeuseId, FaceId, FaceuseId, LoopId, LoopuseId, RegionId, ShellId, VertexId,
@@ -705,6 +707,8 @@ pub enum Reason {
     Failed(&'static str),
     /// An offset, shell, thicken or local operation refused.
     Offset(offset::OffsetFailure),
+    /// A sweep or loft refused (#3140).
+    Sweep(sweep::SweepFailure),
 }
 
 impl Reason {
@@ -712,7 +716,7 @@ impl Reason {
     #[must_use]
     pub fn entity(&self) -> Option<EntityRef> {
         match self {
-            Self::Failed(_) => None,
+            Self::Failed(_) | Self::Sweep(_) => None,
             Self::Offset(o) => o.entity(),
         }
     }
@@ -723,6 +727,7 @@ impl Reason {
         match self {
             Self::Failed(_) => SM_ERR,
             Self::Offset(o) => o.comparison_status(),
+            Self::Sweep(w) => w.comparison_status(),
         }
     }
 
@@ -732,6 +737,7 @@ impl Reason {
         match self {
             Self::Failed(_) => ErrorKind::of_status(status),
             Self::Offset(o) => o.kind(),
+            Self::Sweep(w) => w.kind(),
         }
     }
 }
@@ -741,7 +747,14 @@ impl core::fmt::Display for Reason {
         match self {
             Self::Failed(what) => f.write_str(what),
             Self::Offset(o) => o.fmt(f),
+            Self::Sweep(w) => w.fmt(f),
         }
+    }
+}
+
+impl From<sweep::SweepFailure> for Reason {
+    fn from(w: sweep::SweepFailure) -> Self {
+        Self::Sweep(w)
     }
 }
 
