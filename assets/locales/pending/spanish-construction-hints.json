@@ -1,0 +1,6 @@
+{
+  "es": {
+    "ui.construction.axis_hint": "Línea de construcción: haz clic en un punto o escribe su distancia al eje del boceto",
+    "ui.construction.parallel_hint": "Línea de construcción: elige una línea recta y luego haz clic o escribe el desfase; clic derecho para cambiar la referencia"
+  }
+}
