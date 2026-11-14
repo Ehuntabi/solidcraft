@@ -6029,6 +6029,45 @@ fn a_rectangle_turned_off_the_axes_stays_a_rectangle() {
     assert!(d[0].len() > 1e-6 && d[1].len() > 1e-6);
 }
 
+/// #16642: relations to a stationary line that the turn releases must not stand in for the
+/// rectangle's own relations. Its opposite sides stay parallel through a later corner drag.
+#[test]
+fn a_turned_rectangle_keeps_its_shape_after_releasing_external_parallels() {
+    let (mut s, sides) = rect_with_sides();
+    let fixed = ids(&run(&mut s, "sketch.line", json!({"points": [[0, -5], [30, -5]], "connect": false}))["curves"])[0].clone();
+    run(&mut s, "sketch.constraint.fix", json!({"entity": fixed}));
+    let holds: Vec<Value> = [0, 2]
+        .into_iter()
+        .map(|i| {
+            let r = run(&mut s, "sketch.constraint.parallel", json!({"a": sides[i], "b": fixed}));
+            assert_eq!(r["redundant"], true, "{r}");
+            json!({"id": r["constraint"], "kind": "Parallel"})
+        })
+        .collect();
+    let r = run(&mut s, "sketch.move", json!({"entities": sides, "angle": 30, "center": [1, 1]}));
+    assert_eq!(r["released"], json!(holds), "{r}");
+    assert_eq!(r["sketch"]["dof"], 5, "the rectangle keeps only x, y, width, height and angle free: {r}");
+    assert_eq!(r["sketch"]["solved"], true, "{r}");
+    let kinds: Vec<_> = r["added"].as_array().unwrap().iter().map(|a| a["kind"].as_str().unwrap()).collect();
+    assert_eq!(kinds.iter().filter(|&&k| k == "Parallel").count(), 2, "{r}");
+    assert_eq!(kinds.iter().filter(|&&k| k == "Perpendicular").count(), 1, "{r}");
+
+    run(&mut s, "sketch.drag", json!({"entity": format!("{}.start", sides[0]), "from": [1, 1], "to": [-2, 3]}));
+    run(&mut s, "sketch.drag_end", json!({}));
+    let d = side_directions(&s, &sides);
+    assert!(d[0].cross(d[2]).abs() < 1e-6 && d[1].cross(d[3]).abs() < 1e-6, "opposite sides stay parallel: {d:?}");
+    for i in 0..4 {
+        assert!(d[i].dot(d[(i + 1) % 4]).abs() < 1e-6, "adjacent sides stay perpendicular: {d:?}");
+    }
+    assert!(d[0].len() > 1e-6 && d[1].len() > 1e-6);
+    let sk = sketch(&s);
+    let at = sk.point(sk.resolve_point(&format!("{}.start", sides[0])).unwrap()).unwrap();
+    assert!(at.dist(Vec2::new(-2.0, 3.0)) < 1e-6, "the dragged corner reaches its target: {at:?}");
+    for (end, expected) in [("start", Vec2::new(0.0, -5.0)), ("end", Vec2::new(30.0, -5.0))] {
+        assert_eq!(sk.point(sk.resolve_point(&format!("{fixed}.{end}")).unwrap()).unwrap(), expected);
+    }
+}
+
 fn sides_of(r: &Value) -> Vec<String> {
     ids(&r["curves"])
 }

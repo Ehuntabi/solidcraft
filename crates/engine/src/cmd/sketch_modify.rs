@@ -4006,11 +4006,12 @@ fn move_copy(s: &mut Session, p: &Value) -> Result<Value> {
         with_ellipse_axes(sk, &mut cs);
         let held = holding(sk, &involved_points(sk, &cs, &ps));
         transform_in_place(sk, &cs, &ps, &f, 1.0, cmd)?;
+        // Broken external holds must not make the rectangle's replacement relations look redundant.
+        released = release_broken(sk, &held);
         if rotate_constraints {
             let moved = involved_points(sk, &cs, &ps);
             added = rotate_axis_constraints(sk, doc, &moved, ang)?;
         }
-        released = release_broken(sk, &held);
         cs.extend(text_curves);
         Ok(ids_of(sk, &cs))
     })?;
