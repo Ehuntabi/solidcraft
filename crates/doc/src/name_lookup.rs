@@ -862,9 +862,43 @@ fn locate_face_with(st: &ModelState, name: &str, p: Vec3, round: bool) -> Option
     naming::warm_names(st.bodies.iter().filter(|b| !b.body.is_mesh()));
     match locate_in(st.bodies.iter().enumerate().filter(|(_, b)| !b.body.is_mesh()), name, p) {
         Ok(hit) => Some(hit),
-        Err(Miss::Gone) => recover_numbered_face_in(st, name, p, round),
+        Err(Miss::Gone) => recover_numbered_face_in(st, name, p, round).or_else(|| replaced_side_line(st, name, p)),
         Err(Miss::Several) => None,
     }
+}
+
+/// The `F2` and the number of a side face named after a sketch line (`F2:side:l1`): `None` for any
+/// other name (a numbered piece, a face between neighbours, an arc's side).
+fn side_line_name(name: &str) -> Option<(&str, &str)> {
+    let (stem, id) = name.split_once(":side:l")?;
+    (!stem.is_empty() && !stem.contains(':') && !id.is_empty() && id.bytes().all(|c| c.is_ascii_digit())).then_some((stem, id))
+}
+
+/// A side face whose sketch line was replaced (#16661): the line was deleted and another drawn
+/// where it was, so the new line's side face has a new name (`F2:side:l5`) and the stored one
+/// (`F2:side:l1`) names nothing. The stored point still lies on the face of the line now there:
+/// that face, when it is the one side face of the same feature the point lies on. A line drawn
+/// anywhere else leaves the point on no side face, and the name finds nothing, as before.
+fn replaced_side_line(st: &ModelState, name: &str, p: Vec3) -> Option<FaceHit> {
+    let (stem, _) = side_line_name(name)?;
+    if !p.is_finite() {
+        return None;
+    }
+    let mut found: Option<FaceHit> = None;
+    for (bi, b) in st.bodies.iter().enumerate().filter(|(_, b)| !b.body.is_mesh() && b.body.face_count() <= MAX_PROJECTION_RECOVERY_FACES) {
+        let names = naming::names(b);
+        for (face, own) in names.faces.iter().enumerate() {
+            if side_line_name(own).is_none_or(|(s, _)| s != stem) {
+                continue;
+            }
+            let Some((_, point)) = on_face(b, face, p) else { continue };
+            if found.is_some() {
+                return None;
+            }
+            found = Some(FaceHit { body: bi, face, point, verified: names.verified(face), on_point: true });
+        }
+    }
+    found
 }
 
 /// A numbered piece of a round face (`F2:side:c1#2`, from the kernel before SMLib) on whichever
