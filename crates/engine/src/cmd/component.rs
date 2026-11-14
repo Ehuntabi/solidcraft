@@ -993,8 +993,10 @@ fn place_occurrence(s: &mut Session, p: &Value, id: u64, next: Mat, expressed: O
                     x.expressed_moves.pop();
                 }
             }
+            repin_after_move(s, id);
             return reply(result);
         }
+        repin_after_move(s, id);
     } else {
         s.pending_moves.insert(id, next);
         s.revision += 1;
@@ -1123,6 +1125,60 @@ pub fn to_active_frame(s: &Session, kind: &mut FeatureKind) {
     }
     if let Some(inv) = solidcraft_doc::mat_inverse(&m) {
         kind.transform_geometry(&inv);
+    }
+}
+
+/// Pins where each component with bodies stands, relative to the active one, on an extrude that
+/// ends To Object or starts From Object (#16732). The pick was made against the model as shown,
+/// so the extrude keeps measuring against that: a joint that slides the drawer must not
+/// stretch a body that was built to the frame's face.
+pub fn pin_picked_placements(s: &Session, kind: &mut FeatureKind) {
+    let state = s.model.state();
+    pin_picked_placements_in(s, kind, s.active_component, &state);
+}
+
+/// [`pin_picked_placements`] for a feature of `own`, with the bodies of `state` (the model
+/// before the feature when an edit picks again). Placements are the design's as shown: the
+/// uncaptured moves count, the exploded view does not.
+pub fn pin_picked_placements_in(s: &Session, kind: &mut FeatureKind, own: u64, state: &solidcraft_doc::ModelState) {
+    let FeatureKind::Extrude { extent, .. } = kind else { return };
+    extent.picked_placements.clear();
+    if (extent.to.is_none() && extent.from.is_none()) || s.doc.occurrences.is_empty() {
+        return;
+    }
+    let doc = s.design_document();
+    let Some(inverse) = solidcraft_doc::mat_inverse(&doc.component_transform(own)) else { return };
+    let mut owners = s.doc.model_body_components(state);
+    owners.sort_unstable();
+    owners.dedup();
+    for component in owners.into_iter().filter(|c| *c != own) {
+        let placement = solidcraft_doc::mat_mul(&inverse, &doc.component_transform(component));
+        extent.picked_placements.push(solidcraft_doc::PickedPlacement { component, placement });
+    }
+}
+
+/// A move the user makes (not a joint's) changes where a component stands for good, so each
+/// To / From Object extrude that keeps placements ([`pin_picked_placements`]) with that component
+/// as its own or as a pinned one picks again against the placements shown now (#16732): a face in
+/// a component that was moved is followed, as it always was.
+fn repin_after_move(s: &mut Session, occurrence: u64) {
+    let Some(component) = s.doc.occurrences.iter().find(|o| o.id == occurrence).map(|o| o.component) else { return };
+    let affected: Vec<u64> = s
+        .doc
+        .features
+        .iter()
+        .filter(|f| matches!(&f.kind, FeatureKind::Extrude { extent, .. }
+            if !extent.picked_placements.is_empty() && (f.component == component || extent.picked_placements.iter().any(|p| p.component == component))))
+        .map(|f| f.id)
+        .collect();
+    for id in affected {
+        let Some(feature) = s.doc.feature(id) else { continue };
+        let (own, mut kind) = (feature.component, feature.kind.clone());
+        let before = s.model.state_before(id);
+        pin_picked_placements_in(s, &mut kind, own, &before);
+        if let Some(f) = s.doc_mut().feature_mut(id) {
+            f.kind = kind;
+        }
     }
 }
 

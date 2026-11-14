@@ -1504,6 +1504,13 @@ fn edit_feature(s: &mut Session, p: &Value) -> Result<Value> {
     if nf.kind.face_points() != f.kind.face_points() || f.kind.face_point_fields().iter().any(|path| sets_path(set, path)) {
         nf.face_names = solidcraft_doc::face_point_names(&s.doc, &s.model.state_before(id), &nf.kind, nf.component)?;
     }
+    // A new To or From Object pick measures against the placements shown now (#16732).
+    if let (FeatureKind::Extrude { extent: a, .. }, FeatureKind::Extrude { extent: b, .. }) = (&nf.kind, &f.kind)
+        && (a.to != b.to || a.from != b.from)
+    {
+        let before = s.model.state_before(id);
+        super::component::pin_picked_placements_in(s, &mut nf.kind, nf.component, &before);
+    }
     if let Some(slot) = s.doc_mut().feature_mut(id) {
         *slot = nf;
     }

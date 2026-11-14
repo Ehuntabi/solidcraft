@@ -742,6 +742,7 @@ pub(super) fn add_feature_in(s: &mut Session, p: &Value, kind: FeatureKind, worl
     if world {
         super::component::to_active_frame(s, &mut kind);
     }
+    super::component::pin_picked_placements(s, &mut kind);
     // Bare lengths typed in an inch (or cm…) design mean that unit.
     if s.doc.units.trim() != "mm" {
         let doc = s.doc.clone();
@@ -1359,6 +1360,7 @@ pub(super) fn extent_param(s: &Session, p: &Value, cmd: &str) -> Result<Extent> 
         to_offset: expr(p, "to_offset"),
         from: p.get("from").and_then(vec3).map(FacePick),
         to_body_apart: false,
+        picked_placements: Vec::new(),
     })
 }
 

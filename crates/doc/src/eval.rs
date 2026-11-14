@@ -7002,8 +7002,11 @@ fn feature_tools_with_constructor(
             // middle of the profiles. The points are in this feature's component frame, so the
             // model is seen from there: a target in another, moved component where it is shown.
             let n = ss.plane.normal();
-            let tst =
-                if extent.to.is_some() || extent.from.is_some() { state_in_frame(doc, st, f.component)? } else { std::borrow::Cow::Borrowed(st) };
+            let tst = if extent.to.is_some() || extent.from.is_some() {
+                state_in_frame_pinned_to(doc, st, f.component, &extent.picked_placements)?
+            } else {
+                std::borrow::Cow::Borrowed(st)
+            };
             // Through all, and where the tool meets its targets, is measured where they are shown.
             let shown = targets_as_shown(st, f, &crate::plain(targets))?;
             let st: &ModelState = &shown;
@@ -10771,7 +10774,8 @@ pub fn state_in_frame<'a>(doc: &Document, st: &'a ModelState, comp: u64) -> Resu
 /// model itself.
 pub fn face_point_state<'a>(doc: &Document, st: &'a ModelState, kind: &FeatureKind, comp: u64) -> Result<std::borrow::Cow<'a, ModelState>> {
     match kind {
-        FeatureKind::Extrude { .. } | FeatureKind::Revolve { .. } => state_in_frame(doc, st, comp),
+        FeatureKind::Extrude { extent, .. } => state_in_frame_pinned_to(doc, st, comp, &extent.picked_placements),
+        FeatureKind::Revolve { .. } => state_in_frame(doc, st, comp),
         _ => Ok(std::borrow::Cow::Borrowed(st)),
     }
 }
@@ -10819,6 +10823,29 @@ pub fn face_point_names(doc: &Document, st: &ModelState, kind: &FeatureKind, com
 
 /// As `state_in_frame`, using the exact active placement for its shared source geometry.
 pub fn state_in_frame_at<'a>(doc: &Document, st: &'a ModelState, comp: u64, frame: Mat) -> Result<std::borrow::Cow<'a, ModelState>> {
+    state_in_frame_pinned(doc, st, comp, frame, &[])
+}
+
+/// As [`state_in_frame`], with each component `pins` names held at the placement relative to
+/// `comp` it had when the feature's To / From Object was picked (#16732): a joint that slides
+/// another component does not stretch what the pick measures to. Components without a pin are
+/// where they are shown.
+pub fn state_in_frame_pinned_to<'a>(
+    doc: &Document,
+    st: &'a ModelState,
+    comp: u64,
+    pins: &[crate::PickedPlacement],
+) -> Result<std::borrow::Cow<'a, ModelState>> {
+    state_in_frame_pinned(doc, st, comp, doc.component_transform(comp), pins)
+}
+
+fn state_in_frame_pinned<'a>(
+    doc: &Document,
+    st: &'a ModelState,
+    comp: u64,
+    frame: Mat,
+    pins: &[crate::PickedPlacement],
+) -> Result<std::borrow::Cow<'a, ModelState>> {
     use std::borrow::Cow;
     if doc.occurrences.is_empty() && doc.body_offsets.is_empty() {
         return Ok(Cow::Borrowed(st));
@@ -10826,7 +10853,11 @@ pub fn state_in_frame_at<'a>(doc: &Document, st: &'a ModelState, comp: u64, fram
     let inv = crate::mat_inverse(&frame).ok_or_else(|| DocError::Invalid(format!("component {comp}'s frame cannot be inverted")))?;
     let comp_of_feature = |id: u64| doc.feature(id).map(|f| f.component).unwrap_or(0);
     let rel = |c: u64, body: Option<&str>| {
-        let m = crate::mat_mul(&inv, &if c == comp { frame } else { doc.component_transform(c) });
+        let pinned = if c == comp { None } else { pins.iter().find(|p| p.component == c) };
+        let m = match pinned {
+            Some(p) => p.placement,
+            None => crate::mat_mul(&inv, &if c == comp { frame } else { doc.component_transform(c) }),
+        };
         match body.and_then(|b| doc.body_offsets.get(b)) {
             Some(o) => crate::mat_mul(&m, o),
             None => m,
