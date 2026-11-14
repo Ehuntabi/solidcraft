@@ -8823,7 +8823,9 @@ fn replay(
     // A source's named faces are looked up in the model as it was before any copy was made: the
     // copy of an earlier source (a boss joined to the body) changes the faces a later source (a cut
     // starting on the boss) names, though the later source means the original's (#11792).
-    let named_from = plan.iter().any(|(src, _, _)| src.face_names.iter().any(|n| !n.is_empty())).then(|| st.clone());
+    // A hole placed from edges names those edges too (#16799): the second hole's edge names
+    // mean the original's edges, which the first hole's copy has already cut into.
+    let named_from = plan.iter().any(|(src, _, _)| src.face_names.iter().chain(&src.edge_names).any(|n| !n.is_empty())).then(|| st.clone());
     for (src, mats, first) in &plan {
         // A fillet or chamfer repeats at the copied edges.
         if let FeatureKind::Fillet { edges, radius, .. } | FeatureKind::Chamfer { edges, distance: radius, .. } = &src.kind {
@@ -8946,7 +8948,7 @@ fn replay(
             // A hole is drilled again at each copy of its spot (found on the surface there), so
             // a blind hole's depth counts from the face at the copy, not from the bottom of the
             // original hole under the original spot.
-            let (spots, dir) = hole_spots_raw(vals, st, src)?;
+            let (spots, dir) = hole_spots_raw(vals, named_from.as_ref().unwrap_or(st), src)?;
             // Copies start where the original does (#11538).
             let from_inside = hole_from_inside(doc, src);
             // A hole at sketch points drills into the material, judged at each copy's spots as
