@@ -43,6 +43,7 @@ pub mod safe_write;
 pub mod safe_zip;
 mod sketch2d;
 mod svg;
+mod svg_out;
 mod threemf;
 pub mod urdf;
 pub mod vfs;
@@ -57,6 +58,7 @@ pub use legacy_dir::{APP_ID, LEGACY_APP_ID, PREVIOUS_APP_IDS, adopt_legacy_dir, 
 pub use safe_write::{backup_path, write_atomic};
 pub use sketch2d::{Geom2, MAX_DRAWING_BYTES};
 pub use svg::{decode_svg, read_svg, svg_nothing_to_import, svg_sheet};
+pub use svg_out::{SvgShape, svg_unit, write_svg};
 mod gltf_in;
 pub use gltf_in::{GltfImport, Loader, MAX_GLTF_BYTES, MeshPlan, PlanPlace, glb_container, is_gltf_path, read_gltf};
 mod kicad_in;
